@@ -424,6 +424,13 @@ const startHttp = async (): Promise<void> => {
       url.pathname = '/mcp';
     }
 
+    // Skip /ws - handled by WebSocket server
+    if (url.pathname === '/ws') {
+      // WebSocket upgrade will be handled by wss
+      // Don't respond here, let the upgrade happen
+      return;
+    }
+
     // MCP endpoint
     if (url.pathname !== '/mcp') {
       res.statusCode = 404;
