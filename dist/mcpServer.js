@@ -261,6 +261,12 @@ const startHttp = async () => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Mcp-Session-Id');
+        // Handle OPTIONS preflight for ALL routes
+        if (req.method === 'OPTIONS') {
+            res.statusCode = 204;
+            res.end();
+            return;
+        }
         const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         // Well-known MCP discovery
         if (url.pathname === '/.well-known/mcp' || url.pathname === '/.well-known/mcp.json') {
