@@ -33,39 +33,36 @@ const MIN_GAP = 60; // Minimum gap between shapes (increased for arrow routing)
 const ARROW_LANE_WIDTH = 30; // Space needed for arrow lanes
 const PADDING = 100; // Padding around diagram for section
 function calculateShapeSize(text, type = 'rectangle') {
-    // More accurate text sizing - assume ~8px per character average, ~20px line height
-    const CHAR_WIDTH = 8;
-    const LINE_HEIGHT = 22;
-    const H_PADDING = 32; // Horizontal padding inside shape
-    const V_PADDING = 20; // Vertical padding inside shape
-    // Calculate text dimensions
-    const maxCharsPerLine = 20; // Wrap text at ~20 chars
-    const lines = Math.ceil(text.length / maxCharsPerLine);
-    const longestLineChars = Math.min(text.length, maxCharsPerLine);
-    const textWidth = longestLineChars * CHAR_WIDTH;
-    const textHeight = lines * LINE_HEIGHT;
+    // FigJam uses larger fonts - need more aggressive sizing
+    // Measured: ~10-12px per character in FigJam's default font
+    const CHAR_WIDTH = 11;
+    const LINE_HEIGHT = 24;
+    const H_PADDING = 48; // Generous horizontal padding
+    const V_PADDING = 28; // Generous vertical padding
+    // Don't wrap text - calculate for single line to ensure no truncation
+    const textWidth = text.length * CHAR_WIDTH;
+    const textHeight = LINE_HEIGHT;
     if (type === 'diamond') {
-        // Diamonds: text area is roughly 40% of total area (diamond shape)
-        // Need to size the diamond so the inscribed rectangle fits the text
+        // Diamonds: text area is only ~35% of total area
+        // Must be much larger to fit text in the center
         const innerWidth = textWidth + H_PADDING;
         const innerHeight = textHeight + V_PADDING;
-        // Diamond width/height need to be ~2.2x the inner text area
-        const width = Math.max(200, innerWidth * 2.2);
-        const height = Math.max(120, innerHeight * 2.2);
+        const width = Math.max(220, innerWidth * 2.5);
+        const height = Math.max(140, innerHeight * 2.5);
         return { width, height };
     }
     else if (type === 'ellipse') {
-        // Ellipses: text area is roughly 60% of bounding box
+        // Ellipses: text area is ~55% of bounding box
         const innerWidth = textWidth + H_PADDING;
         const innerHeight = textHeight + V_PADDING;
-        const width = Math.max(160, innerWidth * 1.5);
-        const height = Math.max(60, innerHeight * 1.4);
+        const width = Math.max(180, innerWidth * 1.7);
+        const height = Math.max(70, innerHeight * 1.5);
         return { width, height };
     }
     else {
-        // Rectangles: most efficient, text fits with padding
-        const width = Math.max(160, textWidth + H_PADDING * 2);
-        const height = Math.max(55, textHeight + V_PADDING);
+        // Rectangles (rounded): text fits well with padding
+        const width = Math.max(180, textWidth + H_PADDING * 2);
+        const height = Math.max(60, textHeight + V_PADDING);
         return { width, height };
     }
 }
