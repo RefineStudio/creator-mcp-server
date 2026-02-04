@@ -529,7 +529,7 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     sessions: sessions.size,
-    version: '1.0.0'
+    version: '1.1.0'
   });
 });
 
