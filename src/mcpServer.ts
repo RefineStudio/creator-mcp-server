@@ -211,7 +211,7 @@ const createServer = (): McpServer => {
     'create_flowchart',
     {
       title: 'Create Flowchart',
-      description: 'Create a flowchart diagram in FigJam. The diagram will appear automatically if the plugin is connected.',
+      description: 'Create a flowchart diagram in FigJam. IMPORTANT: Call get_diagram_rules first to learn the required formatting rules for sizing, spacing, and arrow routing.',
       inputSchema: {
         session_code: z.string().describe('The session code from the FigJam Creator plugin (6 characters)'),
         title: z.string().optional().describe('Title for the flowchart'),
@@ -239,7 +239,7 @@ const createServer = (): McpServer => {
     'create_mindmap',
     {
       title: 'Create Mind Map',
-      description: 'Create a mind map diagram in FigJam with a central topic and branches.',
+      description: 'Create a mind map diagram in FigJam. Call get_diagram_rules first for formatting requirements.',
       inputSchema: {
         session_code: z.string().describe('The session code from the FigJam Creator plugin'),
         central_topic: z.string().describe('The main topic in the center'),
@@ -265,7 +265,7 @@ const createServer = (): McpServer => {
     'create_diagram',
     {
       title: 'Create Custom Diagram',
-      description: 'Create a custom diagram in FigJam with full control over shapes and connections.',
+      description: 'Create a custom diagram in FigJam. IMPORTANT: Call get_diagram_rules first - shapes must be sized to fit text (never truncate), arrows must use explicit magnets, minimum 50px gaps between shapes.',
       inputSchema: {
         session_code: z.string().describe('The session code from the FigJam Creator plugin'),
         title: z.string().optional().describe('Title for the diagram section'),
