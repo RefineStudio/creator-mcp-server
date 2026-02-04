@@ -1,24 +1,25 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // ============================================================================
-// Session Management - Links Stilla sessions to FigJam plugins
+// FigJam Session Management
 // ============================================================================
 
 const sessions = new Map(); // sessionCode -> { ws, createdAt, lastPing }
 const pendingCommands = new Map(); // sessionCode -> [commands]
 const sessionContext = new Map(); // sessionCode -> { transcript, client, project, etc. }
 
-// SSE Transport sessions
-const sseTransports = new Map(); // unique key -> transport
+// MCP Transport sessions (per-client)
+const transports = {};
 
 function generateSessionCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -120,13 +121,13 @@ function sendToPlugin(sessionCode, command) {
 }
 
 // ============================================================================
-// MCP Server Factory
+// Singleton MCP Server - All tools defined here
 // ============================================================================
 
 function createMcpServer() {
   const mcpServer = new McpServer({
     name: 'creator',
-    version: '1.2.0',
+    version: '1.3.0',
     description: 'Create diagrams and flowcharts in FigJam with Stilla context'
   });
 
@@ -241,12 +242,16 @@ function createMcpServer() {
   return mcpServer;
 }
 
+// Create the singleton MCP server instance
+const sharedMcpServer = createMcpServer();
+console.log('[MCP] Shared Creator MCP Server instance created.');
+
 // ============================================================================
 // HTTP Routes
 // ============================================================================
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', sessions: sessions.size, sseConnections: sseTransports.size, version: '1.2.0' });
+  res.json({ status: 'ok', sessions: sessions.size, mcpSessions: Object.keys(transports).length, version: '1.3.0' });
 });
 
 app.post('/session', (req, res) => {
@@ -281,47 +286,95 @@ app.post('/context/:code', (req, res) => {
 });
 
 // ============================================================================
-// SSE MCP Endpoint
+// MCP Streamable HTTP Endpoint - Unified /sse handler
 // ============================================================================
 
-app.get('/sse', async (req, res) => {
-  console.log('[MCP] New SSE connection');
-  
-  const transport = new SSEServerTransport('/messages', res);
-  const server = createMcpServer();
-  
-  const transportKey = Date.now().toString();
-  sseTransports.set(transportKey, { transport, server });
-  
-  res.on('close', () => {
-    console.log('[MCP] SSE connection closed');
-    sseTransports.delete(transportKey);
-  });
-  
-  await server.connect(transport);
-});
+function isInitializeRequest(body) {
+  if (body?.method === 'initialize') return true;
+  if (Array.isArray(body) && body.some(m => m.method === 'initialize')) return true;
+  return false;
+}
 
-app.post('/messages', async (req, res) => {
-  // Find the transport that matches this session
-  const sessionId = req.query.sessionId;
+app.all('/sse', async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'];
   
-  // Find transport by iterating (SSE transport uses query param)
-  for (const [key, { transport }] of sseTransports.entries()) {
-    if (transport.sessionId === sessionId || !sessionId) {
-      await transport.handlePostMessage(req, res);
-      return;
+  console.log(`[MCP] ${req.method} /sse - Session: ${sessionId || 'none'}`);
+  
+  // Handle DELETE - terminate session
+  if (req.method === 'DELETE') {
+    if (sessionId && transports[sessionId]) {
+      try {
+        await transports[sessionId].close();
+      } catch (e) {}
+      delete transports[sessionId];
+      console.log(`[MCP] Session terminated: ${sessionId}`);
+      return res.status(200).end();
     }
+    return res.status(404).json({ error: 'Session not found' });
   }
   
-  // If we have any transport, use the most recent one
-  const entries = Array.from(sseTransports.entries());
-  if (entries.length > 0) {
-    const [, { transport }] = entries[entries.length - 1];
-    await transport.handlePostMessage(req, res);
+  // Existing session - reuse transport
+  if (sessionId && transports[sessionId]) {
+    const transport = transports[sessionId];
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (e) {
+      console.error(`[MCP] Error handling request:`, e);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal error' });
+      }
+    }
     return;
   }
   
-  res.status(400).json({ error: 'No active SSE connection' });
+  // New session - must be initialize request (POST)
+  if (req.method === 'POST' && isInitializeRequest(req.body)) {
+    const newSessionId = randomUUID();
+    console.log(`[MCP] Creating new session: ${newSessionId}`);
+    
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => newSessionId,
+      onsessioninitialized: (sid) => {
+        console.log(`[MCP] Session initialized: ${sid}`);
+      }
+    });
+    
+    transports[newSessionId] = transport;
+    
+    // Connect to the shared MCP server
+    await sharedMcpServer.connect(transport);
+    
+    // Clean up on close
+    transport.onclose = () => {
+      console.log(`[MCP] Transport closed for session: ${newSessionId}`);
+      delete transports[newSessionId];
+    };
+    
+    // Handle the initialize request
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (e) {
+      console.error(`[MCP] Error during initialization:`, e);
+      delete transports[newSessionId];
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Initialization failed' });
+      }
+    }
+    return;
+  }
+  
+  // GET without session or non-initialize POST without session
+  if (req.method === 'GET') {
+    return res.status(400).json({ 
+      jsonrpc: '2.0',
+      error: { code: -32600, message: 'Session required. Send initialize request via POST first.' }
+    });
+  }
+  
+  return res.status(400).json({
+    jsonrpc: '2.0',
+    error: { code: -32600, message: 'Invalid request. Missing session ID or not an initialize request.' }
+  });
 });
 
 // ============================================================================
@@ -384,12 +437,13 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════╗
-║           Creator MCP Server v1.2.0 (SSE)              ║
+║     Creator MCP Server v1.3.0 (Streamable HTTP)        ║
 ╠════════════════════════════════════════════════════════╣
 ║  HTTP:      http://localhost:${PORT}                      ║
-║  SSE:       http://localhost:${PORT}/sse                  ║
-║  Messages:  http://localhost:${PORT}/messages             ║
+║  MCP:       http://localhost:${PORT}/sse                  ║
 ║  WebSocket: ws://localhost:${PORT}/ws                     ║
+║                                                        ║
+║  Singleton pattern with per-session transports         ║
 ╚════════════════════════════════════════════════════════╝
   `);
 });
