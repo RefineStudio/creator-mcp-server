@@ -295,7 +295,8 @@ function isInitializeRequest(body) {
   return false;
 }
 
-app.all('/sse', async (req, res) => {
+// Support both /mcp and /sse endpoints
+app.all(['/mcp', '/sse'], async (req, res) => {
   const sessionId = req.headers['mcp-session-id'];
   
   console.log(`[MCP] ${req.method} /sse - Session: ${sessionId || 'none'}`);
