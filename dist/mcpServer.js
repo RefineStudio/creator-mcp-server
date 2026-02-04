@@ -61,6 +61,10 @@ function shapesOverlap(a, b, gap = MIN_GAP) {
 }
 function validateAndFixDiagram(diagram) {
     const fixed = JSON.parse(JSON.stringify(diagram)); // Deep clone
+    // Store section name for later (we'll rebuild sections from scratch)
+    const sectionName = fixed.sections[0]?.name || 'Diagram';
+    // Clear sections - we'll add it LAST after all shapes are finalized
+    fixed.sections = [];
     // 1. Fix shape sizes to fit text (NEVER truncate)
     for (const shape of fixed.shapes) {
         const requiredSize = calculateShapeSize(shape.text, shape.type);
@@ -125,6 +129,7 @@ function validateAndFixDiagram(diagram) {
         }
     }
     // 4. Calculate section bounds LAST - must cover ALL shapes with padding
+    // Section is added AFTER all shapes are finalized so it fully covers everything
     if (fixed.shapes.length > 0) {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const shape of fixed.shapes) {
@@ -133,29 +138,27 @@ function validateAndFixDiagram(diagram) {
             maxX = Math.max(maxX, shape.x + shape.width);
             maxY = Math.max(maxY, shape.y + shape.height);
         }
-        // Update or create section to cover all shapes
+        // Create section to cover all shapes with padding
         const sectionX = minX - PADDING;
         const sectionY = minY - PADDING;
         const sectionWidth = (maxX - minX) + (PADDING * 2);
         const sectionHeight = (maxY - minY) + (PADDING * 2);
-        if (fixed.sections.length > 0) {
-            fixed.sections[0].x = sectionX;
-            fixed.sections[0].y = sectionY;
-            fixed.sections[0].width = Math.max(sectionWidth, 400);
-            fixed.sections[0].height = Math.max(sectionHeight, 300);
-        }
-        else {
-            fixed.sections.push({
-                name: 'Diagram',
-                x: sectionX,
-                y: sectionY,
-                width: Math.max(sectionWidth, 400),
-                height: Math.max(sectionHeight, 300)
-            });
-        }
+        fixed.sections.push({
+            name: sectionName,
+            x: sectionX,
+            y: sectionY,
+            width: Math.max(sectionWidth, 400),
+            height: Math.max(sectionHeight, 300)
+        });
     }
-    console.error(`[Validator] Fixed diagram: ${fixed.shapes.length} shapes, ${iterations} overlap iterations`);
-    return fixed;
+    console.error(`[Validator] Fixed diagram: ${fixed.shapes.length} shapes, ${iterations} overlap iterations, section added LAST`);
+    // 5. Return with explicit property order: shapes first, connections, then sections LAST
+    // This ensures the plugin processes sections after all shapes exist
+    return {
+        shapes: fixed.shapes,
+        connections: fixed.connections,
+        sections: fixed.sections
+    };
 }
 function generateFlowchart(description, nodes = []) {
     const baseFlow = {
