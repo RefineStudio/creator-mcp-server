@@ -95,6 +95,152 @@ interface FlowStep {
   type?: 'process' | 'decision';
 }
 
+// ============================================================================
+// Diagram Validator - ENFORCES RULES regardless of input
+// ============================================================================
+
+const MIN_GAP = 50; // Minimum gap between shapes
+const PADDING = 80; // Padding around diagram for section
+
+function calculateShapeSize(text: string, type: string = 'rectangle'): { width: number, height: number } {
+  const chars = text.length;
+  const lines = Math.ceil(chars / 25); // Approximate line breaks
+  
+  if (type === 'diamond') {
+    // Diamonds need MORE space - text only fits in center ~40%
+    const width = Math.max(180, (chars * 12) + 80);
+    const height = Math.max(100, width * 0.6);
+    return { width, height };
+  } else if (type === 'ellipse') {
+    // Ellipses (start/end)
+    const width = Math.max(120, (chars * 10) + 40);
+    const height = Math.max(50, lines * 25 + 20);
+    return { width, height };
+  } else {
+    // Rectangles
+    const width = Math.max(140, (chars * 10) + 40);
+    const height = Math.max(50, lines * 25 + 20);
+    return { width, height };
+  }
+}
+
+function shapesOverlap(a: DiagramShape, b: DiagramShape, gap: number = MIN_GAP): boolean {
+  return !(
+    a.x + a.width + gap < b.x ||
+    b.x + b.width + gap < a.x ||
+    a.y + a.height + gap < b.y ||
+    b.y + b.height + gap < a.y
+  );
+}
+
+function validateAndFixDiagram(diagram: Diagram): Diagram {
+  const fixed = JSON.parse(JSON.stringify(diagram)) as Diagram; // Deep clone
+  
+  // 1. Fix shape sizes to fit text (NEVER truncate)
+  for (const shape of fixed.shapes) {
+    const requiredSize = calculateShapeSize(shape.text, shape.type);
+    shape.width = Math.max(shape.width || 0, requiredSize.width);
+    shape.height = Math.max(shape.height || 0, requiredSize.height);
+  }
+  
+  // 2. Fix overlapping shapes - push them apart
+  let iterations = 0;
+  let hasOverlap = true;
+  while (hasOverlap && iterations < 100) {
+    hasOverlap = false;
+    iterations++;
+    
+    for (let i = 0; i < fixed.shapes.length; i++) {
+      for (let j = i + 1; j < fixed.shapes.length; j++) {
+        const a = fixed.shapes[i];
+        const b = fixed.shapes[j];
+        
+        if (shapesOverlap(a, b)) {
+          hasOverlap = true;
+          
+          // Calculate centers
+          const aCenterX = a.x + a.width / 2;
+          const aCenterY = a.y + a.height / 2;
+          const bCenterX = b.x + b.width / 2;
+          const bCenterY = b.y + b.height / 2;
+          
+          // Push apart in the direction of least overlap
+          const overlapX = (a.width / 2 + b.width / 2 + MIN_GAP) - Math.abs(aCenterX - bCenterX);
+          const overlapY = (a.height / 2 + b.height / 2 + MIN_GAP) - Math.abs(aCenterY - bCenterY);
+          
+          if (overlapX < overlapY) {
+            // Push horizontally
+            const pushX = (overlapX / 2) + 10;
+            if (aCenterX < bCenterX) {
+              a.x -= pushX;
+              b.x += pushX;
+            } else {
+              a.x += pushX;
+              b.x -= pushX;
+            }
+          } else {
+            // Push vertically
+            const pushY = (overlapY / 2) + 10;
+            if (aCenterY < bCenterY) {
+              a.y -= pushY;
+              b.y += pushY;
+            } else {
+              a.y += pushY;
+              b.y -= pushY;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // 3. Ensure all connections have explicit magnets
+  for (const conn of fixed.connections) {
+    if (!conn.fromMagnet || conn.fromMagnet === 'AUTO') {
+      conn.fromMagnet = 'BOTTOM';
+    }
+    if (!conn.toMagnet || conn.toMagnet === 'AUTO') {
+      conn.toMagnet = 'TOP';
+    }
+  }
+  
+  // 4. Calculate section bounds LAST - must cover ALL shapes with padding
+  if (fixed.shapes.length > 0) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    for (const shape of fixed.shapes) {
+      minX = Math.min(minX, shape.x);
+      minY = Math.min(minY, shape.y);
+      maxX = Math.max(maxX, shape.x + shape.width);
+      maxY = Math.max(maxY, shape.y + shape.height);
+    }
+    
+    // Update or create section to cover all shapes
+    const sectionX = minX - PADDING;
+    const sectionY = minY - PADDING;
+    const sectionWidth = (maxX - minX) + (PADDING * 2);
+    const sectionHeight = (maxY - minY) + (PADDING * 2);
+    
+    if (fixed.sections.length > 0) {
+      fixed.sections[0].x = sectionX;
+      fixed.sections[0].y = sectionY;
+      fixed.sections[0].width = Math.max(sectionWidth, 400);
+      fixed.sections[0].height = Math.max(sectionHeight, 300);
+    } else {
+      fixed.sections.push({
+        name: 'Diagram',
+        x: sectionX,
+        y: sectionY,
+        width: Math.max(sectionWidth, 400),
+        height: Math.max(sectionHeight, 300)
+      });
+    }
+  }
+  
+  console.error(`[Validator] Fixed diagram: ${fixed.shapes.length} shapes, ${iterations} overlap iterations`);
+  return fixed;
+}
+
 function generateFlowchart(description: string, nodes: FlowStep[] = []): Diagram {
   const baseFlow: Diagram = {
     sections: [{ name: description.substring(0, 50), x: 0, y: 0, width: 800, height: 600 }],
@@ -158,14 +304,25 @@ function generateMindmap(centralTopic: string, branches: string[] = []): Diagram
 }
 
 function sendToPlugin(sessionCode: string, command: unknown): boolean {
+  // Validate and fix diagrams before sending
+  let processedCommand = command;
+  if (typeof command === 'object' && command !== null) {
+    const cmd = command as Record<string, unknown>;
+    if (cmd.type === 'create-diagram' && cmd.data) {
+      console.error(`[Bridge] Validating diagram before sending...`);
+      const fixedDiagram = validateAndFixDiagram(cmd.data as Diagram);
+      processedCommand = { ...cmd, data: fixedDiagram };
+    }
+  }
+  
   const session = pluginSessions.get(sessionCode);
   if (session?.ws && session.ws.readyState === WebSocket.OPEN) {
-    session.ws.send(JSON.stringify(command));
+    session.ws.send(JSON.stringify(processedCommand));
     console.error(`[Bridge] Sent command to session ${sessionCode}`);
     return true;
   } else {
     if (!pendingCommands.has(sessionCode)) pendingCommands.set(sessionCode, []);
-    pendingCommands.get(sessionCode)!.push(command);
+    pendingCommands.get(sessionCode)!.push(processedCommand);
     console.error(`[Bridge] Queued command for session ${sessionCode}`);
     return false;
   }
