@@ -353,6 +353,88 @@ const createServer = (): McpServer => {
     },
   );
 
+  // Tool to get diagram formatting rules
+  server.registerTool(
+    'get_diagram_rules',
+    {
+      title: 'Get Diagram Rules',
+      description: 'Get the FigJam diagram formatting rules. ALWAYS call this before creating diagrams to ensure proper formatting.',
+      inputSchema: {},
+    },
+    async () => {
+      const rules = `# FigJam Flowchart Rules - MUST FOLLOW
+
+## Core Principles (NEVER VIOLATE)
+1. Text must NEVER be truncated - no "..." allowed, size shapes to fit ALL text
+2. Shapes must NEVER overlap - maintain 50px gap minimum
+3. Arrows must NEVER intersect other arrows
+4. Arrows must NEVER pass through shapes/bubbles
+
+## Shape Sizing (STRICT)
+
+### Width Calculation
+- Formula: (character_count × 10) + 40 pixels
+- Minimum width: 140px
+- Diamonds need ~1.5x width (text area is smaller)
+
+### Height
+- 1 line: 50px, 2 lines: 70px, each additional: +20px
+
+### Diamonds (Decisions) - CRITICAL
+- Formula: width = (chars × 12) + 80px, minimum 180px
+- Height: width × 0.6
+- KEEP TEXT SHORT (under 15 chars) or diamond must be HUGE
+
+## Spacing
+- Minimum gap between shapes: 50px
+- Parallel paths horizontal separation: 200px+
+- Vertical spacing between steps: 100-120px
+
+## Connection Magnets
+Use fromMagnet/toMagnet with: "TOP", "BOTTOM", "LEFT", "RIGHT"
+NEVER use AUTO - always specify explicit magnets.
+
+## Arrow Routing
+- Vertical Flow: exit BOTTOM, enter TOP
+- Branch Left: exit LEFT, enter TOP
+- Branch Right: exit RIGHT, enter TOP
+- Merging: enter from opposite sides (LEFT/RIGHT)
+- Loop Back: position retry nodes OUTSIDE main flow, route arrows around perimeter
+
+## Colors
+- Start/End: fill "lightGreen"/"lightPurple", stroke "green"/"purple"
+- Process: fill "lightBlue", stroke "blue"
+- Decision: fill "lightOrange", stroke "orange"
+- Error: fill "lightRed", stroke "red"
+
+## Required Shape Properties
+{
+  id: string (unique),
+  x: number,
+  y: number,
+  width: number (calculated from text),
+  height: number,
+  type: "rectangle" | "diamond" | "ellipse",
+  text: string (full text, never truncated),
+  fill: string,
+  stroke: string
+}
+
+## Required Connection Properties
+{
+  from: string (shape id),
+  to: string (shape id),
+  fromMagnet: "TOP" | "BOTTOM" | "LEFT" | "RIGHT",
+  toMagnet: "TOP" | "BOTTOM" | "LEFT" | "RIGHT",
+  label?: string (optional, for Yes/No on decisions)
+}`;
+
+      return {
+        content: [{ type: 'text', text: rules }],
+      };
+    },
+  );
+
   return server;
 };
 
