@@ -29,27 +29,43 @@ setInterval(cleanupSessions, 60 * 1000);
 // ============================================================================
 // Diagram Validator - ENFORCES RULES regardless of input
 // ============================================================================
-const MIN_GAP = 50; // Minimum gap between shapes
-const PADDING = 80; // Padding around diagram for section
+const MIN_GAP = 60; // Minimum gap between shapes (increased for arrow routing)
+const ARROW_LANE_WIDTH = 30; // Space needed for arrow lanes
+const PADDING = 100; // Padding around diagram for section
 function calculateShapeSize(text, type = 'rectangle') {
-    const chars = text.length;
-    const lines = Math.ceil(chars / 25); // Approximate line breaks
+    // More accurate text sizing - assume ~8px per character average, ~20px line height
+    const CHAR_WIDTH = 8;
+    const LINE_HEIGHT = 22;
+    const H_PADDING = 32; // Horizontal padding inside shape
+    const V_PADDING = 20; // Vertical padding inside shape
+    // Calculate text dimensions
+    const maxCharsPerLine = 20; // Wrap text at ~20 chars
+    const lines = Math.ceil(text.length / maxCharsPerLine);
+    const longestLineChars = Math.min(text.length, maxCharsPerLine);
+    const textWidth = longestLineChars * CHAR_WIDTH;
+    const textHeight = lines * LINE_HEIGHT;
     if (type === 'diamond') {
-        // Diamonds need MORE space - text only fits in center ~40%
-        const width = Math.max(180, (chars * 12) + 80);
-        const height = Math.max(100, width * 0.6);
+        // Diamonds: text area is roughly 40% of total area (diamond shape)
+        // Need to size the diamond so the inscribed rectangle fits the text
+        const innerWidth = textWidth + H_PADDING;
+        const innerHeight = textHeight + V_PADDING;
+        // Diamond width/height need to be ~2.2x the inner text area
+        const width = Math.max(200, innerWidth * 2.2);
+        const height = Math.max(120, innerHeight * 2.2);
         return { width, height };
     }
     else if (type === 'ellipse') {
-        // Ellipses (start/end)
-        const width = Math.max(120, (chars * 10) + 40);
-        const height = Math.max(50, lines * 25 + 20);
+        // Ellipses: text area is roughly 60% of bounding box
+        const innerWidth = textWidth + H_PADDING;
+        const innerHeight = textHeight + V_PADDING;
+        const width = Math.max(160, innerWidth * 1.5);
+        const height = Math.max(60, innerHeight * 1.4);
         return { width, height };
     }
     else {
-        // Rectangles
-        const width = Math.max(140, (chars * 10) + 40);
-        const height = Math.max(50, lines * 25 + 20);
+        // Rectangles: most efficient, text fits with padding
+        const width = Math.max(160, textWidth + H_PADDING * 2);
+        const height = Math.max(55, textHeight + V_PADDING);
         return { width, height };
     }
 }
@@ -119,13 +135,87 @@ function validateAndFixDiagram(diagram) {
             }
         }
     }
-    // 3. Ensure all connections have explicit magnets
+    // 3. Smart magnet assignment to reduce arrow overlap
+    // Count connections per shape and per side
+    const incomingBySide = new Map(); // shapeId -> { side -> count }
+    const outgoingBySide = new Map();
+    // Initialize counters
+    for (const shape of fixed.shapes) {
+        incomingBySide.set(shape.id, new Map([['TOP', 0], ['BOTTOM', 0], ['LEFT', 0], ['RIGHT', 0]]));
+        outgoingBySide.set(shape.id, new Map([['TOP', 0], ['BOTTOM', 0], ['LEFT', 0], ['RIGHT', 0]]));
+    }
+    // Build shape lookup for position-based magnet selection
+    const shapeById = new Map(fixed.shapes.map(s => [s.id, s]));
+    // Process connections with smart magnet selection
     for (const conn of fixed.connections) {
-        if (!conn.fromMagnet || conn.fromMagnet === 'AUTO') {
-            conn.fromMagnet = 'BOTTOM';
+        const fromShape = shapeById.get(conn.from);
+        const toShape = shapeById.get(conn.to);
+        if (!fromShape || !toShape)
+            continue;
+        // Calculate relative positions
+        const fromCenterX = fromShape.x + fromShape.width / 2;
+        const fromCenterY = fromShape.y + fromShape.height / 2;
+        const toCenterX = toShape.x + toShape.width / 2;
+        const toCenterY = toShape.y + toShape.height / 2;
+        const dx = toCenterX - fromCenterX;
+        const dy = toCenterY - fromCenterY;
+        // Determine best magnets based on relative position
+        let idealFromMagnet;
+        let idealToMagnet;
+        if (Math.abs(dy) > Math.abs(dx)) {
+            // Primarily vertical relationship
+            if (dy > 0) {
+                idealFromMagnet = 'BOTTOM';
+                idealToMagnet = 'TOP';
+            }
+            else {
+                idealFromMagnet = 'TOP';
+                idealToMagnet = 'BOTTOM';
+            }
         }
-        if (!conn.toMagnet || conn.toMagnet === 'AUTO') {
-            conn.toMagnet = 'TOP';
+        else {
+            // Primarily horizontal relationship
+            if (dx > 0) {
+                idealFromMagnet = 'RIGHT';
+                idealToMagnet = 'LEFT';
+            }
+            else {
+                idealFromMagnet = 'LEFT';
+                idealToMagnet = 'RIGHT';
+            }
+        }
+        // Use provided magnets if valid, otherwise use ideal
+        const fromMagnet = (conn.fromMagnet && conn.fromMagnet !== 'AUTO') ? conn.fromMagnet : idealFromMagnet;
+        const toMagnet = (conn.toMagnet && conn.toMagnet !== 'AUTO') ? conn.toMagnet : idealToMagnet;
+        conn.fromMagnet = fromMagnet;
+        conn.toMagnet = toMagnet;
+        // Track usage for potential offset calculation
+        const fromSideCount = outgoingBySide.get(conn.from);
+        const toSideCount = incomingBySide.get(conn.to);
+        if (fromSideCount)
+            fromSideCount.set(fromMagnet, (fromSideCount.get(fromMagnet) || 0) + 1);
+        if (toSideCount)
+            toSideCount.set(toMagnet, (toSideCount.get(toMagnet) || 0) + 1);
+    }
+    // Add extra spacing for shapes with many connections on same side
+    for (const shape of fixed.shapes) {
+        const incoming = incomingBySide.get(shape.id);
+        const outgoing = outgoingBySide.get(shape.id);
+        if (!incoming || !outgoing)
+            continue;
+        // Check if any side has multiple connections (potential overlap)
+        for (const side of ['TOP', 'BOTTOM', 'LEFT', 'RIGHT']) {
+            const totalOnSide = (incoming.get(side) || 0) + (outgoing.get(side) || 0);
+            if (totalOnSide > 2) {
+                // Multiple arrows on same side - ensure shape has extra margin
+                // Increase shape size slightly to spread connection points
+                if (side === 'TOP' || side === 'BOTTOM') {
+                    shape.width = Math.max(shape.width, shape.width + (totalOnSide - 2) * ARROW_LANE_WIDTH);
+                }
+                else {
+                    shape.height = Math.max(shape.height, shape.height + (totalOnSide - 2) * ARROW_LANE_WIDTH);
+                }
+            }
         }
     }
     // 4. Calculate section bounds LAST - must cover ALL shapes with padding
