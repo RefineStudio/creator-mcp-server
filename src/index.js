@@ -16,6 +16,7 @@ app.use(express.json());
 
 const sessions = new Map(); // sessionCode -> { ws, createdAt, lastPing }
 const pendingCommands = new Map(); // sessionCode -> [commands]
+const sessionContext = new Map(); // sessionCode -> { transcript, client, project, etc. }
 
 function generateSessionCode() {
   // 6-char alphanumeric code
@@ -32,6 +33,7 @@ function cleanupSessions() {
       if (session.ws) session.ws.close();
       sessions.delete(code);
       pendingCommands.delete(code);
+      sessionContext.delete(code);
     }
   }
 }
@@ -206,8 +208,8 @@ function sendToPlugin(sessionCode, command) {
 
 const mcpServer = new McpServer({
   name: 'creator',
-  version: '1.0.0',
-  description: 'Create diagrams and flowcharts in FigJam'
+  version: '1.1.0',
+  description: 'Create diagrams and flowcharts in FigJam with Stilla context'
 });
 
 // Tool: Create flowchart
@@ -414,6 +416,110 @@ mcpServer.tool(
   }
 );
 
+// Tool: Set context for a session (Stilla pushes context to plugin)
+mcpServer.tool(
+  'set_context',
+  'Push context (transcript, client info, project details) to a FigJam session. The plugin can then use this context when generating diagrams.',
+  {
+    session_code: {
+      type: 'string',
+      description: 'The session code from the FigJam Creator plugin'
+    },
+    transcript: {
+      type: 'string',
+      description: 'Call transcript or meeting notes'
+    },
+    client_name: {
+      type: 'string',
+      description: 'Client or company name'
+    },
+    project_name: {
+      type: 'string',
+      description: 'Project or deal name'
+    },
+    summary: {
+      type: 'string',
+      description: 'Brief summary of the context'
+    },
+    metadata: {
+      type: 'object',
+      description: 'Any additional metadata (call date, participants, etc.)'
+    }
+  },
+  async ({ session_code, transcript, client_name, project_name, summary, metadata }) => {
+    const sessionCode = session_code?.toUpperCase();
+    
+    if (!sessionCode || !sessions.has(sessionCode)) {
+      return {
+        content: [{ 
+          type: 'text', 
+          text: `❌ Session "${sessionCode || 'none'}" not found. Ask the user to open the FigJam Creator plugin and share their session code.` 
+        }]
+      };
+    }
+    
+    // Store context for this session
+    sessionContext.set(sessionCode, {
+      transcript,
+      clientName: client_name,
+      projectName: project_name,
+      summary,
+      metadata,
+      updatedAt: Date.now()
+    });
+    
+    console.log(`[Context] Set context for session ${sessionCode}: ${client_name || 'unknown client'}`);
+    
+    // Notify plugin that context is available
+    sendToPlugin(sessionCode, {
+      type: 'context-updated',
+      hasContext: true,
+      clientName: client_name,
+      projectName: project_name,
+      summary
+    });
+    
+    return {
+      content: [{ 
+        type: 'text', 
+        text: `✅ Context set for session "${sessionCode}"${client_name ? ` (${client_name})` : ''}. The FigJam plugin can now generate diagrams using this context.`
+      }]
+    };
+  }
+);
+
+// Tool: Get context for a session
+mcpServer.tool(
+  'get_context',
+  'Get the current context for a FigJam session.',
+  {
+    session_code: {
+      type: 'string',
+      description: 'The session code to check'
+    }
+  },
+  async ({ session_code }) => {
+    const sessionCode = session_code?.toUpperCase();
+    const context = sessionContext.get(sessionCode);
+    
+    if (!context) {
+      return {
+        content: [{ 
+          type: 'text', 
+          text: `No context set for session "${sessionCode}".`
+        }]
+      };
+    }
+    
+    return {
+      content: [{ 
+        type: 'text', 
+        text: JSON.stringify(context, null, 2)
+      }]
+    };
+  }
+);
+
 // ============================================================================
 // HTTP Routes
 // ============================================================================
@@ -455,6 +561,55 @@ app.get('/session/:code', (req, res) => {
     pendingCommands: pendingCommands.get(code)?.length || 0,
     createdAt: session.createdAt
   });
+});
+
+// Get context for a session (called by FigJam plugin)
+app.get('/context/:code', (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const context = sessionContext.get(code);
+  
+  if (!context) {
+    return res.json({ hasContext: false });
+  }
+  
+  res.json({
+    hasContext: true,
+    ...context
+  });
+});
+
+// Set context via HTTP (alternative to MCP tool)
+app.post('/context/:code', (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const session = sessions.get(code);
+  
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  
+  const { transcript, clientName, projectName, summary, metadata } = req.body;
+  
+  sessionContext.set(code, {
+    transcript,
+    clientName,
+    projectName,
+    summary,
+    metadata,
+    updatedAt: Date.now()
+  });
+  
+  console.log(`[Context] Set context via HTTP for session ${code}`);
+  
+  // Notify plugin
+  sendToPlugin(code, {
+    type: 'context-updated',
+    hasContext: true,
+    clientName,
+    projectName,
+    summary
+  });
+  
+  res.json({ success: true });
 });
 
 // MCP endpoint

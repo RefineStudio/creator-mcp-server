@@ -36,7 +36,7 @@ Or deploy to Render:
 In Stilla app → Settings → Connections → Add Custom MCP Server:
 
 - **Server Name:** Creator
-- **Server URL:** `https://creator-mcp.onrender.com/mcp`
+- **Server URL:** `https://creator-mcp-server.onrender.com/mcp`
 - **Description:** Create diagrams and flowcharts in FigJam
 
 ### 3. Use in FigJam
