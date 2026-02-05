@@ -33,36 +33,29 @@ const MIN_GAP = 60; // Minimum gap between shapes (increased for arrow routing)
 const ARROW_LANE_WIDTH = 30; // Space needed for arrow lanes
 const PADDING = 100; // Padding around diagram for section
 function calculateShapeSize(text, type = 'rectangle') {
-    // FigJam uses larger fonts - need more aggressive sizing
-    // Measured: ~10-12px per character in FigJam's default font
-    const CHAR_WIDTH = 11;
-    const LINE_HEIGHT = 24;
-    const H_PADDING = 48; // Generous horizontal padding
-    const V_PADDING = 28; // Generous vertical padding
-    // Don't wrap text - calculate for single line to ensure no truncation
-    const textWidth = text.length * CHAR_WIDTH;
-    const textHeight = LINE_HEIGHT;
+    // Compact sizing - truncation is OK, keep diagrams small
+    const CHAR_WIDTH = 8;
+    const H_PADDING = 30;
+    const V_PADDING = 20;
+    // Cap text length for sizing calculation (truncation is fine)
+    const effectiveLength = Math.min(text.length, 20);
+    const textWidth = effectiveLength * CHAR_WIDTH;
     if (type === 'diamond') {
-        // Diamonds: text area is only ~35% of total area
-        // Must be much larger to fit text in the center
-        const innerWidth = textWidth + H_PADDING;
-        const innerHeight = textHeight + V_PADDING;
-        const width = Math.max(220, innerWidth * 2.5);
-        const height = Math.max(140, innerHeight * 2.5);
+        // Diamonds: compact but readable
+        const width = Math.max(140, textWidth + H_PADDING);
+        const height = Math.max(80, 60);
         return { width, height };
     }
     else if (type === 'ellipse') {
-        // Ellipses: text area is ~55% of bounding box
-        const innerWidth = textWidth + H_PADDING;
-        const innerHeight = textHeight + V_PADDING;
-        const width = Math.max(180, innerWidth * 1.7);
-        const height = Math.max(70, innerHeight * 1.5);
+        // Ellipses: start/end nodes
+        const width = Math.max(120, textWidth + H_PADDING);
+        const height = Math.max(50, 45);
         return { width, height };
     }
     else {
-        // Rectangles (rounded): text fits well with padding
-        const width = Math.max(180, textWidth + H_PADDING * 2);
-        const height = Math.max(60, textHeight + V_PADDING);
+        // Rectangles: compact
+        const width = Math.max(140, textWidth + H_PADDING);
+        const height = Math.max(50, 45);
         return { width, height };
     }
 }
