@@ -666,70 +666,57 @@ const createServer = (): McpServer => {
     async () => {
       const rules = `# FigJam Flowchart Rules - MUST FOLLOW
 
-## Core Principles (NEVER VIOLATE)
-1. Text must NEVER be truncated - no "..." allowed, size shapes to fit ALL text
-2. Shapes must NEVER overlap - maintain 50px gap minimum
-3. Arrows must NEVER intersect other arrows
-4. Arrows must NEVER pass through shapes/bubbles
+## KEEP IT SIMPLE (CRITICAL)
+- Maximum 8-15 nodes total - NO overcomplicated diagrams
+- Focus on the MAIN flow only
+- Combine similar steps into single nodes
+- Don't show every micro-step - show KEY milestones
+- If you have more than 15 nodes, you're overcomplicating it
 
-## Shape Sizing (STRICT)
+## LAYOUT - INVERTED TREE (top to bottom, centered)
+- Start node at TOP CENTER (x=250)
+- Main flow goes straight DOWN the center
+- Branches spread LEFT and RIGHT symmetrically
+- End node at BOTTOM CENTER
+- Keep compact - 80px vertical spacing, 150px horizontal for branches
 
-### Width Calculation
-- Formula: (character_count × 10) + 40 pixels
-- Minimum width: 140px
-- Diamonds need ~1.5x width (text area is smaller)
+## SHAPE TYPES (strict)
+- TERMINATOR (ellipse): Start and End ONLY - fill "lightGreen", stroke "green"
+- PROCESS (rectangle): All action steps - fill "lightBlue", stroke "blue"
+- DECISION (diamond): Yes/No branches ONLY - fill "lightOrange", stroke "orange"
 
-### Height
-- 1 line: 50px, 2 lines: 70px, each additional: +20px
+## DECISION RULES
+- Every decision MUST have BOTH Yes AND No paths shown
+- Yes exits LEFT or BOTTOM, No exits RIGHT
+- Label connections with "Yes" and "No"
+- NEVER show only one outcome
 
-### Diamonds (Decisions) - CRITICAL
-- Formula: width = (chars × 12) + 80px, minimum 180px
-- Height: width × 0.6
-- KEEP TEXT SHORT (under 15 chars) or diamond must be HUGE
+## SIZING (compact - truncation is OK)
+- Rectangles: 160×50
+- Ellipses: 160×55  
+- Diamonds: 140×80
+- Text can truncate - keep shapes SMALL
 
-## Spacing
-- Minimum gap between shapes: 50px
-- Parallel paths horizontal separation: 200px+
-- Vertical spacing between steps: 100-120px
+## ARROWS - SHORTEST PATH
+- All arrows flow DOWNWARD (top to bottom)
+- Straight down: exit BOTTOM → enter TOP
+- Branch left: exit LEFT → enter TOP
+- Branch right: exit RIGHT → enter TOP
+- Merge to center: exit BOTTOM → enter LEFT or RIGHT
+- NEVER cross another arrow
+- NEVER route through a shape
 
-## Connection Magnets
-Use fromMagnet/toMagnet with: "TOP", "BOTTOM", "LEFT", "RIGHT"
-NEVER use AUTO - always specify explicit magnets.
+## POSITIONING (center column x=250)
+- Center: x=250 (main flow)
+- Left branch: x=50-100
+- Right branch: x=400-450
+- Keep parallel branches at SAME Y level
 
-## Arrow Routing
-- Vertical Flow: exit BOTTOM, enter TOP
-- Branch Left: exit LEFT, enter TOP
-- Branch Right: exit RIGHT, enter TOP
-- Merging: enter from opposite sides (LEFT/RIGHT)
-- Loop Back: position retry nodes OUTSIDE main flow, route arrows around perimeter
+## SHAPE FORMAT
+{"id":"unique","x":250,"y":0,"width":160,"height":50,"type":"rectangle","text":"Label","fill":"lightBlue","stroke":"blue"}
 
-## Colors
-- Start/End: fill "lightGreen"/"lightPurple", stroke "green"/"purple"
-- Process: fill "lightBlue", stroke "blue"
-- Decision: fill "lightOrange", stroke "orange"
-- Error: fill "lightRed", stroke "red"
-
-## Required Shape Properties
-{
-  id: string (unique),
-  x: number,
-  y: number,
-  width: number (calculated from text),
-  height: number,
-  type: "rectangle" | "diamond" | "ellipse",
-  text: string (full text, never truncated),
-  fill: string,
-  stroke: string
-}
-
-## Required Connection Properties
-{
-  from: string (shape id),
-  to: string (shape id),
-  fromMagnet: "TOP" | "BOTTOM" | "LEFT" | "RIGHT",
-  toMagnet: "TOP" | "BOTTOM" | "LEFT" | "RIGHT",
-  label?: string (optional, for Yes/No on decisions)
-}`;
+## CONNECTION FORMAT  
+{"from":"id1","to":"id2","fromMagnet":"BOTTOM","toMagnet":"TOP","label":"optional"}`;
 
       return {
         content: [{ type: 'text', text: rules }],
