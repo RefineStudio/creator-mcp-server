@@ -685,11 +685,15 @@ const createServer = (): McpServer => {
 - PROCESS (rectangle): All action steps - fill "lightBlue", stroke "blue"
 - DECISION (diamond): Yes/No branches ONLY - fill "lightOrange", stroke "orange"
 
-## DECISION RULES
-- Every decision MUST have BOTH Yes AND No paths shown
-- Yes exits LEFT or BOTTOM, No exits RIGHT
-- Label connections with "Yes" and "No"
-- NEVER show only one outcome
+## DECISION RULES (CRITICAL - must BRANCH)
+- Every decision diamond SPLITS the flow into TWO separate paths
+- This is NOT optional - decisions MUST branch, not continue straight
+- Yes path: exits LEFT or BOTTOM, goes to a shape on the LEFT side
+- No path: exits RIGHT, goes to a shape on the RIGHT side
+- The two paths run in PARALLEL (different X positions, similar Y)
+- Paths may merge back to center later, or end separately
+- Label all decision exits with "Yes" and "No"
+- A decision with only one exit is WRONG - always show both outcomes
 
 ## SIZING (compact - truncation is OK)
 - Rectangles: 160×50
