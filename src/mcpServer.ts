@@ -149,7 +149,59 @@ function validateAndFixDiagram(diagram: Diagram): Diagram {
   // Clear sections - we'll add it LAST after all shapes are finalized
   fixed.sections = [];
   
-  // 1. Fix shape sizes to fit text (NEVER truncate)
+  // === ENFORCE FLOWCHART RULES ===
+  
+  // 1. Enforce shape types and colors based on content/type
+  for (const shape of fixed.shapes) {
+    const textLower = shape.text.toLowerCase();
+    
+    // Start/End nodes MUST be ellipse (terminator)
+    if (textLower.startsWith('start') || textLower === 'end' || textLower === 'done' || 
+        textLower === 'complete' || textLower === 'finish' || textLower.includes('completed')) {
+      shape.type = 'ellipse';
+      // Start = green, End = green
+      if (textLower.startsWith('start')) {
+        shape.fill = 'lightGreen';
+        shape.stroke = 'green';
+      } else {
+        shape.fill = 'lightGreen';
+        shape.stroke = 'green';
+      }
+    }
+    
+    // Decisions (diamonds) MUST be orange
+    if (shape.type === 'diamond') {
+      shape.fill = 'lightOrange';
+      shape.stroke = 'orange';
+    }
+    
+    // If text contains "?" it's probably a decision - make it a diamond
+    if (shape.text.includes('?') && shape.type !== 'ellipse') {
+      shape.type = 'diamond';
+      shape.fill = 'lightOrange';
+      shape.stroke = 'orange';
+    }
+  }
+  
+  // 2. Ensure every decision has BOTH Yes and No connections
+  const decisionShapes = fixed.shapes.filter(s => s.type === 'diamond');
+  for (const decision of decisionShapes) {
+    const outgoingConnections = fixed.connections.filter(c => c.from === decision.id);
+    const hasYes = outgoingConnections.some(c => c.label?.toLowerCase() === 'yes');
+    const hasNo = outgoingConnections.some(c => c.label?.toLowerCase() === 'no');
+    
+    // If decision has connections but missing labels, add them
+    if (outgoingConnections.length >= 2 && !hasYes && !hasNo) {
+      // Label the first as Yes, second as No
+      if (outgoingConnections[0]) outgoingConnections[0].label = 'Yes';
+      if (outgoingConnections[1]) outgoingConnections[1].label = 'No';
+    } else if (outgoingConnections.length === 1) {
+      // Only one path - log warning (we can't auto-fix missing paths)
+      console.error(`[Validator] Warning: Decision "${decision.text}" only has one outgoing path`);
+    }
+  }
+  
+  // 3. Fix shape sizes
   for (const shape of fixed.shapes) {
     const requiredSize = calculateShapeSize(shape.text, shape.type);
     shape.width = Math.max(shape.width || 0, requiredSize.width);
